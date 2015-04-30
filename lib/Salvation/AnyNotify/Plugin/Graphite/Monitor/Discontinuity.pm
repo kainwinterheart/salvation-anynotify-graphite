@@ -18,8 +18,9 @@ use constant {
 sub default_memory_limit { 100 }
 
 method add(
-    Str{1,}|ArrayRef[Str{1,}]{1,} :target!, Int :threshold,
-    Str{1,} :from, Str{1,} :to, Int :memory
+    Str{1,}|ArrayRef[Str{1,}]{1,} :target!, Num :step_threshold,
+    Str{1,} :from, Str{1,} :to, Int :memory, Num :avg_threshold,
+    Num :stddev_threshold, Num :skew_threshold, Num :z_threshold
 ) {
 
     my $core = $self -> core();
@@ -54,10 +55,11 @@ method add(
                     m3 => 0,
                     stddev => 0,
                     skew => 0,
-                    ( defined $threshold ? ( threshold => $threshold ) : () ),
                     values => [],
                     prev_value => undef,
-                    diff => 0,
+                    step => 0,
+                    z => 0,
+                    z_value => undef,
                 };
 
                 my $warn = sub {
@@ -75,6 +77,8 @@ method add(
                     } );
                 };
 
+                my $max_diff = undef;
+
                 foreach my $point ( sort( {
                         ( $a -> [ POINT_IDX_TIME ] // 0 )
                         <=> ( $b -> [ POINT_IDX_TIME ] // 0 ) } @{ $metric -> datapoints() } ) ) {
@@ -90,17 +94,18 @@ method add(
 
                     if( defined $storage -> { 'prev_value' } ) {
 
-                        $storage -> { 'diff' } = abs( $value - $storage -> { 'prev_value' } );
+                        my $diff = abs( $value - $storage -> { 'prev_value' } );
 
-                        if(
-                            exists $storage -> { 'threshold' }
-                            && ( $storage -> { 'diff' } >= $storage -> { 'threshold' } )
-                        ) {
+                        if( defined $max_diff ) {
 
-                            $warn -> ( threshold => (
-                                diff => $storage -> { 'diff' },
-                                threshold => $storage -> { 'threshold' },
-                            ) );
+                            if( $max_diff < $diff ) {
+
+                                $max_diff = $diff;
+                            }
+
+                        } else {
+
+                            $max_diff = $diff;
                         }
                     }
 
@@ -111,6 +116,11 @@ method add(
 
                         shift( @{ $storage -> { 'values' } } )
                     }
+                }
+
+                if( defined $max_diff ) {
+
+                    $storage -> { 'step' } = $max_diff;
                 }
 
                 foreach my $value ( @{ $storage -> { 'values' } } ) {
@@ -160,11 +170,39 @@ method add(
                         }
                     }
 
-                    if( defined $highest_z && ( $highest_z > 2 ) ) {
+                    $storage -> { 'z' } = $highest_z;
+                    $storage -> { 'z_value' } = $most_abnormal_value;
 
-                        $warn -> ( abnormal => (
-                            z => $highest_z,
-                            most_abnormal_value => $most_abnormal_value,
+                    if(
+                        defined $z_threshold
+                        && ( $storage -> { 'z' } > $z_threshold )
+                    ) {
+
+                        $warn -> ( z_threshold => (
+                            z => $storage -> { 'z' },
+                            value => $storage -> { 'z_value' },
+                            threshold => $z_threshold,
+                        ) );
+                    }
+                }
+
+                foreach my $spec (
+                    [ stddev => $stddev_threshold ],
+                    [ skew => $skew_threshold ],
+                    [ avg => $avg_threshold ],
+                    [ step => $step_threshold ],
+                ) {
+
+                    my ( $key, $threshold ) = @$spec;
+
+                    if(
+                        defined $threshold
+                        && ( $storage -> { $key } > $threshold )
+                    ) {
+
+                        $warn -> ( "${key}_threshold" => (
+                            $key => $storage -> { $key },
+                            threshold => $threshold,
                         ) );
                     }
                 }

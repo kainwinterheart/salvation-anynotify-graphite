@@ -12,7 +12,7 @@ use Salvation::TC ();
 use Net::Graphite::Reader ();
 use Salvation::Method::Signatures;
 
-our $VERSION = 0.01;
+our $VERSION = 0.02;
 
 sub graphite_ttl { 60 }
 
