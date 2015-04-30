@@ -9,7 +9,7 @@ WriteMakefile (
     PREREQ_PM => {
         'Salvation::TC' => '0.11',
         'Salvation::Method::Signatures' => '0.02',
-        'Salvation::AnyNotify' => '0.1',
+        'Salvation::AnyNotify' => '0.01',
         'URI' => 0,
         'Net::Graphite::Reader' => 0,
         'JSON' => 0,
