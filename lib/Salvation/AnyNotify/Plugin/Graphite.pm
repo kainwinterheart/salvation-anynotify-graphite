@@ -9,12 +9,28 @@ use URI ();
 use Socket 'AF_INET', 'AF_INET6';
 use AnyEvent ();
 use Salvation::TC ();
-use Net::Graphite::Reader ();
 use Salvation::Method::Signatures;
+use Salvation::AnyNotify::Plugin::Graphite::Reader ();
 
-our $VERSION = 0.02;
+use constant {
 
-sub graphite_ttl { 60 }
+    UNPACK_SOCKADDR_MAP => {
+        AF_INET() => \&Socket::unpack_sockaddr_in,
+        AF_INET6() => \&Socket::unpack_sockaddr_in6,
+    },
+};
+
+our $VERSION = 0.03;
+
+sub default_graphite_ttl { 1 * 60 * 60 }
+
+method graphite_ttl() {
+
+    return (
+        $self -> core() -> config() -> get( 'graphite.connection_ttl' )
+        // $self -> default_graphite_ttl()
+    );
+}
 
 method start() {
 
@@ -97,7 +113,8 @@ method query( Str{1,}|ArrayRef[Str{1,}]{1,} :target!, Str{1,} :from!, Str{1,} :t
 
 method get_graphite() {
 
-    my $hosts = $self -> core() -> config() -> get( 'graphite.hosts' );
+    my $config = $self -> core() -> config();
+    my $hosts = $config -> get( 'graphite.hosts' );
 
     Salvation::TC -> assert( $hosts, 'ArrayRef[HashRef(
         Str :host!,
@@ -129,21 +146,48 @@ method get_graphite() {
 
         foreach my $ai ( Socket::getaddrinfo( $uri -> host(), $uri -> port() ) ) {
 
-            next unless Salvation::TC -> is( $ai, 'HashRef( Int :family! )' );
+            next unless Salvation::TC -> is( $ai, 'HashRef( Int :family!, Str{1,} :addr! )' );
 
-            if(
-                ( $ai -> { 'family' } == AF_INET )
-                || ( $ai -> { 'family' } == AF_INET6 )
-            ) {
+            if( defined( my $code = UNPACK_SOCKADDR_MAP -> { $ai -> { 'family' } } ) ) {
 
-                return Net::Graphite::Reader -> new(
-                    uri => $uri -> as_string(),
-                );
+                unless( $config -> get( 'graphite.disable_preventive_hostname_resolution' ) ) {
+
+                    my $host = eval{ Socket::inet_ntop(
+                        $ai -> { 'family' },
+                        ( $code -> ( $ai -> { 'addr' } ) )[ 1 ],
+                    ) };
+
+                    warn $@ if $@;
+
+                    if( defined $host ) {
+
+                        if( $ai -> { 'family' } == AF_INET6 ) {
+
+                            $host = "[${host}]";
+
+                        }
+
+                        $uri -> host( $host );
+
+                    } else {
+
+                        next;
+                    }
+                }
+
+                return $self -> new_graphite( uri => $uri );
             }
         }
     }
 
     return undef;
+}
+
+method new_graphite( URI :uri! ) {
+
+    return Salvation::AnyNotify::Plugin::Graphite::Reader -> new(
+        uri => $uri,
+    );
 }
 
 1;

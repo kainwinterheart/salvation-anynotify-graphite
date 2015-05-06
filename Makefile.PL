@@ -15,6 +15,10 @@ WriteMakefile (
         'JSON' => 0,
         'bignum' => 0,
         'AnyEvent' => 0,
+        'LWP::UserAgent' => 0,
+        'MIME::Base64' => 0,
+        'HTTP::Message' => 0,
+        'Moose' => 0,
     },
     META_MERGE => {
     "meta-spec" => { version => 2 },
